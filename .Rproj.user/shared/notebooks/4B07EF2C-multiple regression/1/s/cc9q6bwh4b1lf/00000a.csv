@@ -1,0 +1,4 @@
+"0","ggplot(existing_product_attributes2017, aes(x= ProductType, y = Volume)) + geom_boxplot()
+ggplot(existing_product_attributes2017, aes(x= ProductType,)) + geom_bar()
+"
+"0","ggplot(new_product_attributes2017, aes(x= ProductType,)) + geom_bar()"

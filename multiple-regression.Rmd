@@ -1,0 +1,191 @@
+---
+title: "Sales Prediction Report"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, error = FALSE, message = FALSE)
+```
+
+Sergi Calderón and Xènia Fabregat
+
+## Executive summary
+
+In this task, Danielle asked us to predict sales volume for a list of new product types, based on historical sales data. For this task, Danielle wanted us to evaluate how product types could impact those sales. However, after performing some analysis we discover that product type has no significant impact on sales volume. This could be due to many factors: the sample is very small and this could skew our predictions, maybe the classification isn't optimal (we don't know very well according to which criteria product types are grouped: why are netbooks and laptops in two different groups? What do accessories include and could they be split?),...
+
+This is why, we based our predictions on two other variables: 4 stars review and positive service review. Thanks to these we got the following predictions:
+
+```{r}
+library(readr)
+library(ggplot2)
+
+predictiongraph <- read_csv("C:/Users/user/Documents/multiple regression/newproductw_prediction.csv")
+net_sales <- (predictiongraph$predictedvolume * predictiongraph$Price)
+predictiongraph <- cbind(net_sales, predictiongraph)
+ggplot(predictiongraph, aes(y = net_sales, x = ProductType, fill = ProductType)) + geom_col() + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+According to them it looks like we should invest in Game Consoles, Tablets, Netbooks and PCs. However, these predictions have a low condifence level because, as stated before, the size of the data set on which predictions are based is very small (only 80 observations). Therefore, we would suggest to use these predictions carefully taking this into account and, as a next step, performing again this analysis on a bigger sample.
+
+
+## Technical appendix
+
+
+```{r}
+# Load Libraries
+
+library(caret)
+library(corrplot)
+library(party)
+library(lattice)
+library(data.table)
+```
+
+
+
+```{r}
+existing_product_attributes2017 <- read_csv("C:/Users/user/Downloads/existingproductattributes2017.csv")
+existing_product_attributes2017$BestSellersRank <- NULL
+new_product_attributes2017 <- read_csv("C:/Users/user/Downloads/newproductattributes2017.csv")
+new_product_attributes2017$BestSellersRank <- NULL
+```
+
+
+
+
+### Data understanding & Pre processing
+
+To tackle this task, our first step was to understand and pre process the data we were given, and as Danielle was asking, put special focus on assessing whether Product Type impacted sales volume or not.
+
+#### Missing data
+
+We can see that Best Seller rank has missing data, this is why we will dismiss this variable.
+
+#### Categorical to binary data conversion
+
+Once we have no missing data, we want to find correlations with the different variables, and to do so we will need to dummify our categorical variable: product type. Once this is done, we can spot the following correlations:
+
+```{r}
+dummy_existing1 <- dummyVars(" ~ .", data = existing_product_attributes2017)
+dummy_existing <- data.frame(predict(dummy_existing1, newdata = existing_product_attributes2017))
+correlation_matrix <- cor(dummy_existing)
+corrplot(correlation_matrix, tl.cex = 0.5)
+```
+
+
+#### Feature selection
+
+Thanks to this correlation matrix we can see that there are 6 variables that have a high correlation with volume:
+
+1. 5 stars review
+
+2. 4 stars review
+
+3. 3 stars review
+
+4. Positive service review
+
+5. 2 stars review
+
+6. Product Type Game Console
+
+However, we can see also that 5 stars review has a 100% correlation with volume, which is impossible and must be by chance, so we can't use it. Also that 3 and 2 stars review are colinear with 4 stars review. This is why we will remove them and make sure we can use 4 stars review, Positive service review and Product Type Game Console.
+
+```{r}
+dummyok <- subset(existing_product_attributes2017, select = c("ProductType", "Volume", "x4StarReviews", "PositiveServiceReview"))
+dummyok$ProductType <- as.factor(dummyok$ProductType)
+
+```
+
+
+Out of these 3 remaining variables, we will inspect further the distribution of the variable with the weakest correlation, Product Type.
+
+Let's have a closer look at Product Type distribution. Indeed if we look at the boxplot distributions, Game console have huge volume, but that's skewed due to the distribution of the data:
+
+```{r}
+ggplot(dummyok, aes(x = Volume)) + geom_density() + facet_wrap(~ ProductType) # copied from David during the code review
+ggplot(existing_product_attributes2017, aes(x= ProductType, y = Volume)) + geom_boxplot() + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+ggplot(existing_product_attributes2017, aes(x= ProductType,)) + geom_bar() + stat_count() + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+We can see that Game Console has only 2 data points, which is why we can't rely on it. Furthermore, if we look at all Product Types and volume, we can find no relationship:
+
+```{r}
+summary(aov(Volume ~ ProductType, data = existing_product_attributes2017))
+
+```
+
+If we perform an anova analysis we can see that the P value is too high, and this is why we decided not to use Product Type at all, and use only 4 stars reviews and positive service review.
+
+```{r}
+dummyok <- subset(existing_product_attributes2017, select = c("Volume", "x4StarReviews", "PositiveServiceReview"))
+```
+
+## Modeling
+
+To decide on the best model possible, we ran 4 different models (svm, knn, random forest and linear model). We saw that due to the sample size the seed used changed dramatically the performance of the models used, and this is why we tried these 4 models with 10 different seeds each:
+
+```{r message=FALSE, warning=FALSE,error=F, collapse = T}
+for (i in 1:10) {
+  
+set.seed(i)
+inTrain <- createDataPartition(y = dummyok$Volume, p = .80, list = FALSE)
+training <- dummyok[inTrain,]
+testing <- dummyok[-inTrain,]
+
+models <- c("svmLinear", "knn", "rf", "lm")
+
+resum <- c()
+resumseed <- c()
+
+    for (j in models) {
+      
+      fit <- train(Volume ~ ., data = training, method = j)
+      predictedvolume <- predict(fit, testing)
+      hola <- postResample(pred = predictedvolume, obs = testing$Volume)
+      resum <- cbind(hola, resum)
+      
+      
+    }
+
+colnames(resum) <-(models)
+resumseed <- rbind(resum, resumseed)
+
+}
+
+```
+
+After doing so, we see that knn is the model that gives us a better performance:
+
+```{r}
+resumseedok <- as.data.frame(melt(resumseed))
+
+SVM <- subset.data.frame(resumseedok, resumseedok$Var2 == "svmLinear")
+KNN <- subset.data.frame(resumseedok, resumseedok$Var2 == "knn")
+RF <- subset.data.frame(resumseedok, resumseedok$Var2 == "rf")
+LM <- subset.data.frame(resumseedok, resumseedok$Var2 == "lm")
+
+resumerrormetrics <- cbind(tapply(SVM$value, SVM$Var1, mean), tapply(KNN$value, KNN$Var1, mean), tapply(RF$value, RF$Var1, mean), tapply(LM$value, LM$Var1, mean))
+
+colnames(resumerrormetrics) <-(models)
+
+resumerrormetrics
+```
+
+And this is why we will use it to do our predictions:
+
+```{r}
+fit <- train(Volume ~ ., data = training, method = "knn", importance=T)
+predictedvolume <- round(predict(fit, new_product_attributes2017), digits = 0)
+newproductw_prediction <- cbind(predictedvolume, new_product_attributes2017)
+newproductw_prediction
+
+ggplot(predictiongraph, aes(y = predictedvolume, x = ProductType, fill = ProductType)) + geom_col() + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+write.csv(newproductw_prediction, file="newproductw_prediction.csv", row.names = TRUE)
+```
+
+

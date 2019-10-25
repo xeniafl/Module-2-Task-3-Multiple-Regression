@@ -1,0 +1,20 @@
+"0","fit <- train(Volume ~ ., data = training, method = ""rf"", importance=T)
+prediction <- predict(fit, testing)
+postResample(pred = prediction, obs = testing$Volume)
+"
+"1","       RMSE "
+"1","   Rsquared "
+"1","        MAE "
+"1","
+"
+"1","661.2696518 "
+"1","  0.8354518 "
+"1","207.2023095 "
+"1","
+"
+"0","varImp(fit)"
+"1","rf"
+"1"," "
+"1","variable importance
+
+"
